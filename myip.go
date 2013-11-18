@@ -3,16 +3,43 @@ package main
 import (
   "flag"
   "fmt"
+  "io/ioutil"
   "net"
+  "net/http"
   "os"
 )
 
-func getAddresses() (addrs []net.Addr) {
-  addrs, err := net.InterfaceAddrs()
+func getAddresses(external bool) (addrs []net.Addr) {
+  if external {
+    addrs = getExternal()
+  } else {
+    got, err := net.InterfaceAddrs()
+    if err != nil {
+      os.Exit(1)
+    }
+    addrs = got
+  }
+  return
+}
+
+func getExternal() []net.Addr {
+  res, err := http.Get("http://benizi.com/ip?raw=1")
   if err != nil {
     os.Exit(1)
   }
-  return
+  defer res.Body.Close()
+
+  ip, err := ioutil.ReadAll(res.Body)
+  if err != nil {
+    os.Exit(1)
+  }
+
+  _, network, err := net.ParseCIDR(fmt.Sprintf("%s/32", ip[0:len(ip)-1]))
+  if err != nil {
+    os.Exit(1)
+  }
+
+  return []net.Addr{network}
 }
 
 func succeed(addr string) {
@@ -22,9 +49,10 @@ func succeed(addr string) {
 
 func main() {
   only6 := flag.Bool("6", false, "Limit to IPv6")
+  external := flag.Bool("x", false, "Fetch external address")
   flag.Parse()
 
-  addrs := getAddresses()
+  addrs := getAddresses(*external)
   for _, addr := range addrs {
     network, ok := addr.(*net.IPNet)
     if !ok || network.IP.IsLoopback() {
